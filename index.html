@@ -1,0 +1,321 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HLS Player</title>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 20px;
+    background: #101114;
+    color: #fff;
+    font-family: Arial, sans-serif;
+}
+
+.container {
+    width: 100%;
+    max-width: 950px;
+    margin: 30px auto;
+}
+
+h2 {
+    margin-bottom: 18px;
+}
+
+video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 12px;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 15px;
+}
+
+input {
+    flex: 1;
+    min-width: 0;
+    padding: 13px;
+    background: #202127;
+    color: white;
+    border: 1px solid #393a43;
+    border-radius: 8px;
+    outline: none;
+}
+
+button {
+    padding: 12px 16px;
+    background: #30313a;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+button:active {
+    opacity: .7;
+}
+
+.primary {
+    background: #fff;
+    color: #111;
+}
+
+#status {
+    color: #aaa;
+    font-size: 13px;
+    margin-top: 14px;
+}
+
+.share {
+    margin-top: 20px;
+    padding: 15px;
+    background: #1b1c22;
+    border-radius: 10px;
+}
+
+.share input {
+    width: 100%;
+    margin: 10px 0;
+}
+
+small {
+    color: #999;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h2>HLS Player</h2>
+
+    <video
+        id="video"
+        controls
+        playsinline
+        preload="metadata">
+    </video>
+
+    <div class="controls">
+        <input
+            id="stream"
+            type="url"
+            placeholder="Paste your .m3u8 URL">
+
+        <button class="primary" onclick="playStream()">
+            PLAY
+        </button>
+    </div>
+
+    <div id="status">Ready</div>
+
+    <div class="share">
+        <strong>Share Player</strong>
+        <small>Generate a link that automatically loads your video.</small>
+
+        <input
+            id="shareURL"
+            readonly
+            placeholder="Your shareable player link">
+
+        <div class="controls">
+            <button onclick="generateShare()">Generate Link</button>
+            <button onclick="copyShare()">Copy Link</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+const video = document.getElementById("video");
+const input = document.getElementById("stream");
+const status = document.getElementById("status");
+const shareURL = document.getElementById("shareURL");
+
+let hls = null;
+
+// PLAY HLS
+function playStream() {
+    const url = input.value.trim();
+
+    if (!url) {
+        status.textContent = "Please enter an HLS URL.";
+        return;
+    }
+
+    try {
+        const parsed = new URL(url);
+
+        if (!["http:", "https:"].includes(parsed.protocol)) {
+            throw new Error("Invalid protocol");
+        }
+    } catch {
+        status.textContent = "Invalid video URL.";
+        return;
+    }
+
+    if (hls) {
+        hls.destroy();
+        hls = null;
+    }
+
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+
+    status.textContent = "Loading stream...";
+
+    if (Hls.isSupported()) {
+
+        hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+            backBufferLength: 30
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal) {
+                status.textContent =
+                    "Playback error: " + data.type;
+
+                hls.destroy();
+                hls = null;
+            }
+        });
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            status.textContent = "Stream loaded.";
+
+            video.play().catch(() => {
+                status.textContent =
+                    "Ready. Press the play button.";
+            });
+        });
+
+        hls.loadSource(url);
+        hls.attachMedia(video);
+
+    } else if (
+        video.canPlayType("application/vnd.apple.mpegurl")
+    ) {
+
+        video.src = url;
+
+        video.addEventListener("loadedmetadata", () => {
+            status.textContent = "Stream loaded.";
+            video.play().catch(() => {});
+        }, { once: true });
+
+    } else {
+        status.textContent = "Your browser does not support HLS.";
+    }
+}
+
+// VIDEO EVENTS
+video.addEventListener("playing", () => {
+    status.textContent = "Playing";
+});
+
+video.addEventListener("waiting", () => {
+    status.textContent = "Buffering...";
+});
+
+video.addEventListener("pause", () => {
+    if (!video.ended) {
+        status.textContent = "Paused";
+    }
+});
+
+video.addEventListener("ended", () => {
+    status.textContent = "Video ended.";
+});
+
+video.addEventListener("error", () => {
+    status.textContent = "Video playback failed.";
+});
+
+// GENERATE SHAREABLE LINK
+function generateShare() {
+    const url = input.value.trim();
+
+    if (!url) {
+        status.textContent = "Enter an HLS URL first.";
+        return;
+    }
+
+    shareURL.value =
+        window.location.origin +
+        window.location.pathname +
+        "?url=" +
+        encodeURIComponent(url);
+
+    status.textContent = "Share link generated.";
+}
+
+// COPY SHAREABLE LINK
+async function copyShare() {
+    if (!shareURL.value) {
+        generateShare();
+    }
+
+    if (!shareURL.value) return;
+
+    try {
+        await navigator.clipboard.writeText(shareURL.value);
+        status.textContent = "Share link copied!";
+    } catch {
+        shareURL.select();
+        status.textContent = "Select and copy the link manually.";
+    }
+}
+
+// AUTOMATIC URL INPUT
+function loadFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const url = params.get("url");
+
+    if (url) {
+        input.value = url;
+        playStream();
+        return;
+    }
+
+    // Also supports /hps=ENCODED_VIDEO_URL
+    const path = window.location.pathname;
+    const prefix = "/hps=";
+
+    if (path.includes(prefix)) {
+        const value = path.substring(
+            path.indexOf(prefix) + prefix.length
+        );
+
+        try {
+            input.value = decodeURIComponent(value);
+            playStream();
+        } catch {
+            status.textContent = "Invalid encoded video URL.";
+        }
+    }
+}
+
+loadFromURL();
+</script>
+
+</body>
+</html>
